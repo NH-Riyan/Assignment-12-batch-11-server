@@ -33,6 +33,8 @@ async function run() {
     await client.connect();
     const UserList = client.db("A12B11").collection('users')
     const PostList = client.db("A12B11").collection('posts')
+    const ReportList = client.db("A12B11").collection('reports');
+    const AnnouncementsList = client.db("A12B11").collection("Announcements")
 
     app.post("/users", async (req, res) => {
       try {
@@ -80,14 +82,48 @@ async function run() {
     });
 
 
-    // GET /posts/:id
-    app.get("/posts/:id", async (req, res) => {
-        const postId = req.params.id;
-        const post = await PostList.findOne({ _id: new ObjectId(postId) });
-        res.send(post); 
-      
-    });
+    app.get("/posts/recent/:page", async (req, res) => {
+ 
+    const page = parseInt(req.params.page) || 1;
+    const limit = 5;
+    const skip = (page - 1) * limit;
 
+    const posts = await PostList.find()
+      .sort({ createdAt: -1 }) // newest first
+      .skip(skip)
+      .limit(limit)
+      .toArray();;
+
+    const totalPosts = await PostList.countDocuments();
+    res.json({ posts, totalPosts });
+  
+});
+
+
+
+
+  app.get("/posts/popular/:page", async (req, res) => {
+  
+    const page = parseInt(req.params.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const skip = (page - 1) * limit;
+
+    const posts = await PostList.aggregate([
+      {
+        $addFields: { voteDifference: { $subtract: ["$upVote", "$downVote"] } }
+      },
+      {
+        $sort: { voteDifference: -1, createdAt: -1 }
+      },
+      { $skip: skip },
+      { $limit: limit }
+    ]).toArray(); 
+
+    const totalPosts = await PostList.countDocuments();
+
+    res.json({ posts, totalPosts });
+  
+});
 
 
     app.delete("/posts/:id", async (req, res) => {
@@ -131,6 +167,62 @@ async function run() {
         res.status(500).send({ message: "Internal Server Error" });
       }
     });
+
+
+    app.put("/posts/reportComment/:id", async (req, res) => {
+      try {
+        const postId = req.params.id;
+        const { commentIndex, feedback } = req.body;
+
+        const result = await PostList.updateOne({ _id: new ObjectId(postId) },
+          {
+            $set: {
+              [`Comment.${commentIndex}.feedback`]: feedback,
+              [`Comment.${commentIndex}.reported`]: true,
+            },
+          }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: "Post or comment not found" });
+        }
+
+        res.send({ message: "Comment reported successfully" });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+
+    app.post("/reports", async (req, res) => {
+      const reportData = req.body;
+      const result = await ReportList.insertOne(reportData);
+
+      res.send(result)
+
+    });
+
+    app.post("/announcements", async (req, res) => {
+      try {
+        const announcementData = req.body;
+        const result = await AnnouncementsList.insertOne(announcementData);
+
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+
+    app.get("/announcements", async (req, res) => {
+      const result = await AnnouncementsList.find({}).toArray();
+      res.send(result);
+    });
+
+
+
 
 
 
