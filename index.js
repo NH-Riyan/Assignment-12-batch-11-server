@@ -54,6 +54,13 @@ async function run() {
       }
     });
 
+    app.get("/user/:email", async (req, res) => {
+      const { email } = req.params;
+      const posts = await UserListList.find({ authorEmail: email }).toArray();
+      res.send(posts);
+
+    });
+
     app.get("/posts/user/:email", async (req, res) => {
       const { email } = req.params;
 
@@ -82,48 +89,154 @@ async function run() {
     });
 
 
+    app.get("/posts/:id", async (req, res) => {
+      const postId = req.params.id;
+      const post = await PostList.findOne({ _id: new ObjectId(postId) });
+      res.send(post);
+    });
+
+
+    app.post("/posts/:id/comment", async (req, res) => {
+     
+        const { commenterEmail, commentText, feedback, reported, commentTime } = req.body;
+        const postId = req.params.id;
+
+        const user = await UserList.findOne({ email: commenterEmail });
+        const commenterName = user.name ;
+
+        const newComment = {
+          commenter: commenterName,
+          commenterEmail,
+          commentText,
+          feedback,
+          reported,
+          commentTime
+        };
+
+        await PostList.updateOne(
+          { _id: new ObjectId(postId) },
+          { $push: { Comment: newComment } }
+        );
+
+        res.json({ message: "Comment added", comment: newComment });
+      
+    });
+
+
+
+    app.post("/posts/:id/upvote", async (req, res) => {
+      try {
+        const { userEmail } = req.body;
+        const postId = req.params.id;
+
+        const post = await PostList.findOne({ _id: new ObjectId(postId) });
+
+        // Remove from dislike if exists
+        post.dislike = post.dislike.filter(email => email !== userEmail);
+
+        // Toggle like: remove if already liked, else add
+        if (post.like.includes(userEmail)) {
+          post.like = post.like.filter(email => email !== userEmail);
+        } else {
+          post.like.push(userEmail);
+        }
+
+        // Update vote counts
+        const upVote = post.like.length;
+        const downVote = post.dislike.length;
+
+        // Update the post in the database
+        await PostList.updateOne(
+          { _id: new ObjectId(postId) },
+          { $set: { like: post.like, dislike: post.dislike, upVote, downVote } }
+        );
+
+        // Send updated info
+        res.json({ like: post.like, dislike: post.dislike, upVote, downVote });
+      } catch (err) {
+        console.error("Upvote error:", err);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+
+
+    const { ObjectId } = require("mongodb");
+
+    app.post("/posts/:id/downvote", async (req, res) => {
+      try {
+        const { userEmail } = req.body;
+        const postId = req.params.id;
+
+        const post = await PostList.findOne({ _id: new ObjectId(postId) });
+        post.like = post.like.filter(email => email !== userEmail);
+
+        if (post.dislike.includes(userEmail)) {
+          post.dislike = post.dislike.filter(email => email !== userEmail);
+        } else {
+          post.dislike.push(userEmail);
+        }
+
+        const upVote = post.like.length;
+        const downVote = post.dislike.length;
+        await PostList.updateOne(
+          { _id: new ObjectId(postId) },
+          { $set: { like: post.like, dislike: post.dislike, upVote, downVote } }
+        );
+
+        res.json({ like: post.like, dislike: post.dislike, upVote, downVote });
+      } catch (err) {
+        console.error("Downvote error:", err);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+
+
+
+
     app.get("/posts/recent/:page", async (req, res) => {
- 
-    const page = parseInt(req.params.page) || 1;
-    const limit = 5;
-    const skip = (page - 1) * limit;
 
-    const posts = await PostList.find()
-      .sort({ createdAt: -1 }) // newest first
-      .skip(skip)
-      .limit(limit)
-      .toArray();;
+      const page = parseInt(req.params.page) || 1;
+      const limit = 5;
+      const skip = (page - 1) * limit;
 
-    const totalPosts = await PostList.countDocuments();
-    res.json({ posts, totalPosts });
-  
-});
+      const posts = await PostList.find()
+        .sort({ createdAt: -1 }) // newest first
+        .skip(skip)
+        .limit(limit)
+        .toArray();
 
+      const totalPosts = await PostList.countDocuments();
+      res.json({ posts, totalPosts });
 
+    });
 
 
-  app.get("/posts/popular/:page", async (req, res) => {
-  
-    const page = parseInt(req.params.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-    const skip = (page - 1) * limit;
 
-    const posts = await PostList.aggregate([
-      {
-        $addFields: { voteDifference: { $subtract: ["$upVote", "$downVote"] } }
-      },
-      {
-        $sort: { voteDifference: -1, createdAt: -1 }
-      },
-      { $skip: skip },
-      { $limit: limit }
-    ]).toArray(); 
 
-    const totalPosts = await PostList.countDocuments();
+    app.get("/posts/popular/:page", async (req, res) => {
 
-    res.json({ posts, totalPosts });
-  
-});
+      const page = parseInt(req.params.page) || 1;
+      const limit = parseInt(req.query.limit) || 5;
+      const skip = (page - 1) * limit;
+
+      const posts = await PostList.aggregate([
+        {
+          $addFields: { voteDifference: { $subtract: ["$upVote", "$downVote"] } }
+        },
+        {
+          $sort: { voteDifference: -1, createdAt: -1 }
+        },
+        { $skip: skip },
+        { $limit: limit }
+      ]).toArray();
+
+      const totalPosts = await PostList.countDocuments();
+
+      res.json({ posts, totalPosts });
+
+    });
 
 
     app.delete("/posts/:id", async (req, res) => {
@@ -183,9 +296,6 @@ async function run() {
           }
         );
 
-        if (result.modifiedCount === 0) {
-          return res.status(404).send({ message: "Post or comment not found" });
-        }
 
         res.send({ message: "Comment reported successfully" });
       } catch (err) {
