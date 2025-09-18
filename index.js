@@ -69,6 +69,18 @@ async function run() {
 
     });
 
+    app.put("/users/incrementWarning/:email", async (req, res) => {
+      const { email } = req.params;
+
+      const result = await UserList.updateOne(
+        { email },
+        { $inc: { warning: 1 } },
+        { upsert: true }
+      );
+
+    });
+
+
 
     app.post("/posts", async (req, res) => {
       const post = req.body;
@@ -97,29 +109,30 @@ async function run() {
 
 
     app.post("/posts/:id/comment", async (req, res) => {
-     
-        const { commenterEmail, commentText, feedback, reported, commentTime } = req.body;
-        const postId = req.params.id;
 
-        const user = await UserList.findOne({ email: commenterEmail });
-        const commenterName = user.name ;
+      const { commenterEmail, commentText, feedback, reported, commentTime } = req.body;
+      const postId = req.params.id;
 
-        const newComment = {
-          commenter: commenterName,
-          commenterEmail,
-          commentText,
-          feedback,
-          reported,
-          commentTime
-        };
+      const user = await UserList.findOne({ email: commenterEmail });
+      const commenterName = user.name;
 
-        await PostList.updateOne(
-          { _id: new ObjectId(postId) },
-          { $push: { Comment: newComment } }
-        );
+      const newComment = {
+        _id: new ObjectId(),
+        commenter: commenterName,
+        commenterEmail,
+        commentText,
+        feedback,
+        reported,
+        commentTime
+      };
 
-        res.json({ message: "Comment added", comment: newComment });
-      
+      await PostList.updateOne(
+        { _id: new ObjectId(postId) },
+        { $push: { Comment: newComment } }
+      );
+
+      res.json({ message: "Comment added", comment: newComment });
+
     });
 
 
@@ -160,8 +173,6 @@ async function run() {
     });
 
 
-
-    const { ObjectId } = require("mongodb");
 
     app.post("/posts/:id/downvote", async (req, res) => {
       try {
@@ -211,8 +222,6 @@ async function run() {
       res.json({ posts, totalPosts });
 
     });
-
-
 
 
     app.get("/posts/popular/:page", async (req, res) => {
@@ -270,9 +279,6 @@ async function run() {
         const email = req.params.email;
         const user = await UserList.findOne({ email }, { projection: { postNumber: 1 } });
 
-        if (!user) {
-          return res.status(404).send({ message: "User not found" });
-        }
 
         res.send({ postNumber: user.postNumber || 0 });
       } catch (err) {
@@ -282,26 +288,28 @@ async function run() {
     });
 
 
-    app.put("/posts/reportComment/:id", async (req, res) => {
-      try {
-        const postId = req.params.id;
-        const { commentIndex, feedback } = req.body;
+    app.put("/posts/reportComment/:postId", async (req, res) => {
 
-        const result = await PostList.updateOne({ _id: new ObjectId(postId) },
-          {
-            $set: {
-              [`Comment.${commentIndex}.feedback`]: feedback,
-              [`Comment.${commentIndex}.reported`]: true,
-            },
-          }
-        );
+      const { postId } = req.params;
+      const { commentId, feedback } = req.body;
 
 
-        res.send({ message: "Comment reported successfully" });
-      } catch (err) {
-        console.error(err);
-        res.status(500).send({ message: "Internal Server Error" });
+      const result = await PostList.updateOne(
+        { _id: new ObjectId(postId), "Comment._id":new ObjectId(commentId) },
+        {
+          $set: {
+            "Comment.$.feedback": feedback,
+            "Comment.$.reported": true,
+          },
+        }
+      );
+
+      if (result.modifiedCount === 0) {
+        return res.status(404).send({ message: "Post or comment not found" });
       }
+
+      res.send({ message: "Comment reported successfully" });
+
     });
 
 
@@ -311,6 +319,22 @@ async function run() {
 
       res.send(result)
 
+    });
+
+    app.get('/reports', async (req, res) => {
+      const result = await ReportList.find().sort({ reportedAt: -1 }).toArray();
+      res.send(result);
+    })
+
+    app.put("/reports/solve/:reportId", async (req, res) => {
+      const { reportId } = req.params;
+
+      const result = await ReportList.updateOne(
+        { _id: new ObjectId(reportId) },
+        { $set: { solved: true } }
+      );
+
+      res.send(result)
     });
 
     app.post("/announcements", async (req, res) => {
