@@ -9,6 +9,13 @@ const port = 3000
 app.use(cors())
 app.use(express.json());
 
+const admin = require("firebase-admin");
+
+const serviceAccount = require("./firebase-adminsdk-key.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 
 const uri = `mongodb+srv://${process.env.DB_User}:${process.env.DB_Pass}@cluster10.oop5ill.mongodb.net/?retryWrites=true&w=majority&appName=Cluster10`;
@@ -27,6 +34,27 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
 })
+
+
+const verifyFBToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: 'unauthorized access' })
+  }
+  const token = authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).send({ message: 'unauthorized access' })
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.decoded = decoded;
+    next();
+  }
+  catch (error) {
+    return res.status(403).send({ message: 'forbidden access' })
+  }
+}
 
 async function run() {
   try {
@@ -54,14 +82,14 @@ async function run() {
       }
     });
 
-    app.get("/user/:email", async (req, res) => {
+    app.get("/user/:email",verifyFBToken, async (req, res) => {
       const { email } = req.params;
-      const posts = await UserListList.find({ authorEmail: email }).toArray();
+      const posts = await UserList.find({ authorEmail: email }).toArray();
       res.send(posts);
 
     });
 
-    app.get("/posts/user/:email", async (req, res) => {
+    app.get("/posts/user/:email",verifyFBToken, async (req, res) => {
       const { email } = req.params;
 
       const posts = await PostList.find({ authorEmail: email }).toArray();
@@ -101,11 +129,30 @@ async function run() {
     });
 
 
-    app.get("/posts/:id", async (req, res) => {
+    app.get("/posts/:id",verifyFBToken, async (req, res) => {
       const postId = req.params.id;
       const post = await PostList.findOne({ _id: new ObjectId(postId) });
       res.send(post);
     });
+
+
+    app.get("/api/posts/search", async (req, res) => {
+
+      const { tag } = req.query;
+
+      if (!tag) {
+        return res.status(400).json({ message: "Tag query is required" });
+      }
+
+
+      const result = await PostList.find({
+        tag: { $regex: new RegExp(tag, "i") }
+      }).toArray();
+
+      res.json(result);
+
+    });
+
 
 
     app.post("/posts/:id/comment", async (req, res) => {
@@ -274,7 +321,7 @@ async function run() {
     });
 
 
-    app.get("/users/postNumber/:email", async (req, res) => {
+    app.get("/users/postNumber/:email",verifyFBToken, async (req, res) => {
       try {
         const email = req.params.email;
         const user = await UserList.findOne({ email }, { projection: { postNumber: 1 } });
@@ -288,14 +335,14 @@ async function run() {
     });
 
 
-    app.put("/posts/reportComment/:postId", async (req, res) => {
+    app.put("/posts/reportComment/:postId",verifyFBToken, async (req, res) => {
 
       const { postId } = req.params;
       const { commentId, feedback } = req.body;
 
 
       const result = await PostList.updateOne(
-        { _id: new ObjectId(postId), "Comment._id":new ObjectId(commentId) },
+        { _id: new ObjectId(postId), "Comment._id": new ObjectId(commentId) },
         {
           $set: {
             "Comment.$.feedback": feedback,
@@ -321,12 +368,12 @@ async function run() {
 
     });
 
-    app.get('/reports', async (req, res) => {
+    app.get('/reports',verifyFBToken, async (req, res) => {
       const result = await ReportList.find().sort({ reportedAt: -1 }).toArray();
       res.send(result);
     })
 
-    app.put("/reports/solve/:reportId", async (req, res) => {
+    app.put("/reports/solve/:reportId",verifyFBToken, async (req, res) => {
       const { reportId } = req.params;
 
       const result = await ReportList.updateOne(
@@ -354,8 +401,6 @@ async function run() {
       const result = await AnnouncementsList.find({}).toArray();
       res.send(result);
     });
-
-
 
 
 
