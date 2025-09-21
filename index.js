@@ -84,18 +84,32 @@ async function run() {
 
     app.get("/user/:email",verifyFBToken, async (req, res) => {
       const { email } = req.params;
-      const posts = await UserList.find({ authorEmail: email }).toArray();
-      res.send(posts);
+      console.log(email)
+      const user = await UserList.findOne({ email });
+      res.send(user);
 
     });
 
-    app.get("/posts/user/:email",verifyFBToken, async (req, res) => {
+    app.get("/posts/user/:email", verifyFBToken, async (req, res) => {
       const { email } = req.params;
 
       const posts = await PostList.find({ authorEmail: email }).toArray();
       res.send(posts);
 
     });
+
+    app.get("/posts/limit/:email", verifyFBToken, async (req, res) => {
+      const { email } = req.params;
+      const limit = 3;
+
+      const results = await PostList
+        .find({ authorEmail: email })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .toArray();
+
+      res.send(results);
+    })
 
     app.put("/users/incrementWarning/:email", async (req, res) => {
       const { email } = req.params;
@@ -129,7 +143,7 @@ async function run() {
     });
 
 
-    app.get("/posts/:id",verifyFBToken, async (req, res) => {
+    app.get("/posts/:id", verifyFBToken, async (req, res) => {
       const postId = req.params.id;
       const post = await PostList.findOne({ _id: new ObjectId(postId) });
       res.send(post);
@@ -321,7 +335,7 @@ async function run() {
     });
 
 
-    app.get("/users/postNumber/:email",verifyFBToken, async (req, res) => {
+    app.get("/users/postNumber/:email", verifyFBToken, async (req, res) => {
       try {
         const email = req.params.email;
         const user = await UserList.findOne({ email }, { projection: { postNumber: 1 } });
@@ -335,7 +349,7 @@ async function run() {
     });
 
 
-    app.put("/posts/reportComment/:postId",verifyFBToken, async (req, res) => {
+    app.put("/posts/reportComment/:postId", verifyFBToken, async (req, res) => {
 
       const { postId } = req.params;
       const { commentId, feedback } = req.body;
@@ -368,12 +382,12 @@ async function run() {
 
     });
 
-    app.get('/reports',verifyFBToken, async (req, res) => {
+    app.get('/reports', verifyFBToken, async (req, res) => {
       const result = await ReportList.find().sort({ reportedAt: -1 }).toArray();
       res.send(result);
     })
 
-    app.put("/reports/solve/:reportId",verifyFBToken, async (req, res) => {
+    app.put("/reports/solve/:reportId", verifyFBToken, async (req, res) => {
       const { reportId } = req.params;
 
       const result = await ReportList.updateOne(
