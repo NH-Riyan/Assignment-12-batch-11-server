@@ -56,6 +56,16 @@ const verifyFBToken = async (req, res, next) => {
   }
 }
 
+const verifyAdmin = async (req, res, next) => {
+  const email = req.decoded.email;
+  const query = { email }
+  const user = await usersCollection.findOne(query);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).send({ message: 'forbidden access' })
+  }
+  next();
+}
+
 async function run() {
   try {
     await client.connect();
@@ -84,8 +94,8 @@ async function run() {
     });
 
     app.get("/users", verifyFBToken, async (req, res) => {
-        const users = await UserList.find({}).toArray();
-        res.send(users);
+      const users = await UserList.find({}).toArray();
+      res.send(users);
     });
 
     app.get("/user/:email", verifyFBToken, async (req, res) => {
@@ -94,13 +104,36 @@ async function run() {
       res.send(user);
 
     });
-    app.get("/users/banwarnings", async (req, res) => {
+    app.get("/users/banwarnings",verifyFBToken,verifyAdmin, async (req, res) => {
 
       const users = await UserList.find({ warning: { $exists: true } }).toArray();
       res.send(users);
     });
 
 
+    app.get('/users/:email/role',verifyFBToken,async (req, res) => {
+
+      const email = req.params.email;
+      const user = await UserList.findOne({ email });
+      res.send({ role: user.role || 'user' });
+
+    });
+
+    app.patch("/users/changerole/:id",verifyAdmin, async (req, res) => {
+
+      const { id } = req.params;
+      const user = await UserList.findOne({ _id: new ObjectId(id) });
+
+      const newRole = user.role === "admin" ? "user" : "admin";
+
+      const result = await UserList.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role: newRole } }
+      );
+
+      res.send(result);
+
+    });
 
 
     app.get("/posts/user/:email", verifyFBToken, async (req, res) => {
@@ -124,7 +157,7 @@ async function run() {
       res.send(results);
     })
 
-    app.put("/users/incrementWarning/:email", async (req, res) => {
+    app.put("/users/incrementWarning/:email",verifyFBToken,verifyAdmin, async (req, res) => {
       const { email } = req.params;
 
       const result = await UserList.updateOne(
@@ -136,7 +169,7 @@ async function run() {
     });
 
 
-    app.delete("/users/:id", verifyFBToken, async (req, res) => {
+    app.delete("/users/:id", verifyFBToken,verifyAdmin, async (req, res) => {
       const { id } = req.params;
       const user = await UserList.findOne({ _id: new ObjectId(id) });
       const result = await UserList.deleteOne({ _id: new ObjectId(id) });
@@ -176,14 +209,13 @@ async function run() {
     });
 
 
-    app.get("/api/posts/search", async (req, res) => {
+    app.get("/posts/search", async (req, res) => {
 
       const { tag } = req.query;
 
       if (!tag) {
         return res.status(400).json({ message: "Tag query is required" });
       }
-
 
       const result = await PostList.find({
         tag: { $regex: new RegExp(tag, "i") }
@@ -224,34 +256,28 @@ async function run() {
 
 
 
-    app.post("/posts/:id/upvote", async (req, res) => {
+    app.post("/posts/:id/upvote",verifyFBToken, async (req, res) => {
       try {
         const { userEmail } = req.body;
         const postId = req.params.id;
 
         const post = await PostList.findOne({ _id: new ObjectId(postId) });
-
-        // Remove from dislike if exists
         post.dislike = post.dislike.filter(email => email !== userEmail);
-
-        // Toggle like: remove if already liked, else add
+ 
         if (post.like.includes(userEmail)) {
           post.like = post.like.filter(email => email !== userEmail);
         } else {
           post.like.push(userEmail);
         }
-
-        // Update vote counts
+  
         const upVote = post.like.length;
         const downVote = post.dislike.length;
 
-        // Update the post in the database
         await PostList.updateOne(
           { _id: new ObjectId(postId) },
           { $set: { like: post.like, dislike: post.dislike, upVote, downVote } }
         );
 
-        // Send updated info
         res.json({ like: post.like, dislike: post.dislike, upVote, downVote });
       } catch (err) {
         console.error("Upvote error:", err);
@@ -261,7 +287,7 @@ async function run() {
 
 
 
-    app.post("/posts/:id/downvote", async (req, res) => {
+    app.post("/posts/:id/downvote",verifyAdmin, async (req, res) => {
       try {
         const { userEmail } = req.body;
         const postId = req.params.id;
@@ -335,17 +361,11 @@ async function run() {
     });
 
 
-    app.delete("/posts/:id", async (req, res) => {
+    app.delete("/posts/:id",verifyFBToken, async (req, res) => {
       try {
         const id = req.params.id;
         const query = { _id: new ObjectId(id) }
-
         const post = await PostList.findOne(query);
-
-        if (!post) {
-          return res.status(404).send({ message: "Post not found" });
-        }
-
         const result = await PostList.deleteOne(query);
 
         await UserList.updateOne(
@@ -408,12 +428,12 @@ async function run() {
 
     });
 
-    app.get('/reports', verifyFBToken, async (req, res) => {
+    app.get('/reports', verifyFBToken,verifyAdmin, async (req, res) => {
       const result = await ReportList.find().sort({ reportedAt: -1 }).toArray();
       res.send(result);
     })
 
-    app.put("/reports/solve/:reportId", verifyFBToken, async (req, res) => {
+    app.put("/reports/solve/:reportId", verifyFBToken,verifyAdmin, async (req, res) => {
       const { reportId } = req.params;
 
       const result = await ReportList.updateOne(
@@ -424,7 +444,7 @@ async function run() {
       res.send(result)
     });
 
-    app.post("/announcements", async (req, res) => {
+    app.post("/announcements",verifyFBToken,verifyAdmin, async (req, res) => {
       try {
         const announcementData = req.body;
         const result = await AnnouncementsList.insertOne(announcementData);
@@ -437,17 +457,15 @@ async function run() {
     });
 
 
-   app.get("/announcements", async (req, res) => {
-  try {
-    const result = await AnnouncementsList.find().toArray();
-    res.send(result);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ error: "Failed to fetch announcements" });
-  }
-});
-
-
+    app.get("/announcements", async (req, res) => {
+      try {
+        const result = await AnnouncementsList.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to fetch announcements" });
+      }
+    });
 
 
 
