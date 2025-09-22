@@ -64,6 +64,7 @@ async function run() {
     const ReportList = client.db("A12B11").collection('reports');
     const AnnouncementsList = client.db("A12B11").collection("Announcements")
 
+
     app.post("/users", async (req, res) => {
       try {
         const { email } = req.body;
@@ -82,13 +83,25 @@ async function run() {
       }
     });
 
-    app.get("/user/:email",verifyFBToken, async (req, res) => {
+    app.get("/users", verifyFBToken, async (req, res) => {
+        const users = await UserList.find({}).toArray();
+        res.send(users);
+    });
+
+    app.get("/user/:email", verifyFBToken, async (req, res) => {
       const { email } = req.params;
-      console.log(email)
       const user = await UserList.findOne({ email });
       res.send(user);
 
     });
+    app.get("/users/banwarnings", async (req, res) => {
+
+      const users = await UserList.find({ warning: { $exists: true } }).toArray();
+      res.send(users);
+    });
+
+
+
 
     app.get("/posts/user/:email", verifyFBToken, async (req, res) => {
       const { email } = req.params;
@@ -121,6 +134,19 @@ async function run() {
       );
 
     });
+
+
+    app.delete("/users/:id", verifyFBToken, async (req, res) => {
+      const { id } = req.params;
+      const user = await UserList.findOne({ _id: new ObjectId(id) });
+      const result = await UserList.deleteOne({ _id: new ObjectId(id) });
+
+      const User = await admin.auth().getUserByEmail(user.email);
+      await admin.auth().deleteUser(User.uid);
+
+      res.send(result);
+    });
+
 
 
 
@@ -411,10 +437,16 @@ async function run() {
     });
 
 
-    app.get("/announcements", async (req, res) => {
-      const result = await AnnouncementsList.find({}).toArray();
-      res.send(result);
-    });
+   app.get("/announcements", async (req, res) => {
+  try {
+    const result = await AnnouncementsList.find().toArray();
+    res.send(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ error: "Failed to fetch announcements" });
+  }
+});
+
 
 
 
