@@ -2,7 +2,7 @@ const express = require('express')
 const cors = require('cors')
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-
+const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY);
 const app = express()
 const port = 3000
 
@@ -73,6 +73,8 @@ async function run() {
     const PostList = client.db("A12B11").collection('posts')
     const ReportList = client.db("A12B11").collection('reports');
     const AnnouncementsList = client.db("A12B11").collection("Announcements")
+    const PaymentList = client.db("A12B11").collection("Payments")
+    
 
 
     app.post("/users", async (req, res) => {
@@ -104,14 +106,14 @@ async function run() {
       res.send(user);
 
     });
-    app.get("/users/banwarnings",verifyFBToken,verifyAdmin, async (req, res) => {
+    app.get("/users/banwarnings", verifyFBToken, verifyAdmin, async (req, res) => {
 
       const users = await UserList.find({ warning: { $exists: true } }).toArray();
       res.send(users);
     });
 
 
-    app.get('/users/:email/role',verifyFBToken,async (req, res) => {
+    app.get('/users/:email/role', verifyFBToken, async (req, res) => {
 
       const email = req.params.email;
       const user = await UserList.findOne({ email });
@@ -119,7 +121,7 @@ async function run() {
 
     });
 
-    app.patch("/users/changerole/:id",verifyAdmin, async (req, res) => {
+    app.patch("/users/changerole/:id", verifyAdmin, async (req, res) => {
 
       const { id } = req.params;
       const user = await UserList.findOne({ _id: new ObjectId(id) });
@@ -157,7 +159,7 @@ async function run() {
       res.send(results);
     })
 
-    app.put("/users/incrementWarning/:email",verifyFBToken,verifyAdmin, async (req, res) => {
+    app.put("/users/incrementWarning/:email", verifyFBToken, verifyAdmin, async (req, res) => {
       const { email } = req.params;
 
       const result = await UserList.updateOne(
@@ -169,7 +171,7 @@ async function run() {
     });
 
 
-    app.delete("/users/:id", verifyFBToken,verifyAdmin, async (req, res) => {
+    app.delete("/users/:id", verifyFBToken, verifyAdmin, async (req, res) => {
       const { id } = req.params;
       const user = await UserList.findOne({ _id: new ObjectId(id) });
       const result = await UserList.deleteOne({ _id: new ObjectId(id) });
@@ -256,20 +258,20 @@ async function run() {
 
 
 
-    app.post("/posts/:id/upvote",verifyFBToken, async (req, res) => {
+    app.post("/posts/:id/upvote", verifyFBToken, async (req, res) => {
       try {
         const { userEmail } = req.body;
         const postId = req.params.id;
 
         const post = await PostList.findOne({ _id: new ObjectId(postId) });
         post.dislike = post.dislike.filter(email => email !== userEmail);
- 
+
         if (post.like.includes(userEmail)) {
           post.like = post.like.filter(email => email !== userEmail);
         } else {
           post.like.push(userEmail);
         }
-  
+
         const upVote = post.like.length;
         const downVote = post.dislike.length;
 
@@ -287,7 +289,7 @@ async function run() {
 
 
 
-    app.post("/posts/:id/downvote",verifyAdmin, async (req, res) => {
+    app.post("/posts/:id/downvote", verifyAdmin, async (req, res) => {
       try {
         const { userEmail } = req.body;
         const postId = req.params.id;
@@ -361,7 +363,7 @@ async function run() {
     });
 
 
-    app.delete("/posts/:id",verifyFBToken, async (req, res) => {
+    app.delete("/posts/:id", verifyFBToken, async (req, res) => {
       try {
         const id = req.params.id;
         const query = { _id: new ObjectId(id) }
@@ -428,12 +430,12 @@ async function run() {
 
     });
 
-    app.get('/reports', verifyFBToken,verifyAdmin, async (req, res) => {
+    app.get('/reports', verifyFBToken, verifyAdmin, async (req, res) => {
       const result = await ReportList.find().sort({ reportedAt: -1 }).toArray();
       res.send(result);
     })
 
-    app.put("/reports/solve/:reportId", verifyFBToken,verifyAdmin, async (req, res) => {
+    app.put("/reports/solve/:reportId", verifyFBToken, verifyAdmin, async (req, res) => {
       const { reportId } = req.params;
 
       const result = await ReportList.updateOne(
@@ -444,7 +446,7 @@ async function run() {
       res.send(result)
     });
 
-    app.post("/announcements",verifyFBToken,verifyAdmin, async (req, res) => {
+    app.post("/announcements", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const announcementData = req.body;
         const result = await AnnouncementsList.insertOne(announcementData);
@@ -464,6 +466,49 @@ async function run() {
       } catch (error) {
         console.error(error);
         res.status(500).send({ error: "Failed to fetch announcements" });
+      }
+    });
+
+    app.post("/payments", async (req, res) => {
+      try {
+        const { email, transactionId, paymentMethod } = req.body;
+
+        const paymentDoc = {
+          email,
+          transactionId,
+          paymentMethod,
+          status: "succeeded",
+          date: new Date(),
+        };
+        await PaymentList.insertOne(paymentDoc);
+
+        await UserList.updateOne(
+          { email },
+          { $set: { badge: "gold" } },
+          { upsert: true } 
+        );
+        res.json({
+          success: true,
+          message: "Payment stored & badge updated",
+          payment: paymentDoc,
+        });
+      } catch (error) {
+        console.error("Payment API error:", error);
+        res.status(500).json({ error: "Server error" });
+      }
+    });
+
+    app.post('/create-payment-intent', async (req, res) => {
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: 1000,
+          currency: 'usd',
+          payment_method_types: ['card'],
+        });
+
+        res.json({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
       }
     });
 
