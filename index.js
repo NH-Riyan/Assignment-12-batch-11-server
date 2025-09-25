@@ -36,35 +36,6 @@ app.listen(port, () => {
 })
 
 
-const verifyFBToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).send({ message: 'unauthorized access' })
-  }
-  const token = authHeader.split(' ')[1];
-  if (!token) {
-    return res.status(401).send({ message: 'unauthorized access' })
-  }
-
-  try {
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.decoded = decoded;
-    next();
-  }
-  catch (error) {
-    return res.status(403).send({ message: 'forbidden access' })
-  }
-}
-
-const verifyAdmin = async (req, res, next) => {
-  const email = req.decoded.email;
-  const query = { email }
-  const user = await usersCollection.findOne(query);
-  if (!user || user.role !== 'admin') {
-    return res.status(403).send({ message: 'forbidden access' })
-  }
-  next();
-}
 
 async function run() {
   try {
@@ -74,8 +45,36 @@ async function run() {
     const ReportList = client.db("A12B11").collection('reports');
     const AnnouncementsList = client.db("A12B11").collection("Announcements")
     const PaymentList = client.db("A12B11").collection("Payments")
-    
 
+    const verifyFBToken = async (req, res, next) => {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).send({ message: 'unauthorized access f' })
+      }
+      const token = authHeader.split(' ')[1];
+      if (!token) {
+        return res.status(401).send({ message: 'unauthorized access' })
+      }
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+      }
+      catch (error) {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+    }
+
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+
+      const query = { email }
+      const user = await UserList.findOne(query);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+      next();
+    }
 
     app.post("/users", async (req, res) => {
       try {
@@ -95,7 +94,7 @@ async function run() {
       }
     });
 
-    app.get("/users", verifyFBToken, async (req, res) => {
+    app.get("/users", verifyFBToken, verifyAdmin, async (req, res) => {
       const users = await UserList.find({}).toArray();
       res.send(users);
     });
@@ -108,20 +107,29 @@ async function run() {
     });
     app.get("/users/banwarnings", verifyFBToken, verifyAdmin, async (req, res) => {
 
-      const users = await UserList.find({ warning: { $exists: true } }).toArray();
+      const users = await UserList.find({ warning: { $gte: 5 } }).toArray();
       res.send(users);
     });
 
+    
+    app.get('/users/role/:email', verifyFBToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const user = await UserList.findOne({ email });
 
-    app.get('/users/:email/role', verifyFBToken, async (req, res) => {
+        console.log("d_____________________",user)
+        if (!user) {
+          return res.status(404).send({ message: 'User not found' });
+        }
 
-      const email = req.params.email;
-      const user = await UserList.findOne({ email });
-      res.send({ role: user.role || 'user' });
-
+        res.send({ role: user.role || 'user' });
+      } catch (error) {
+        console.error("Error finding user by email:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
     });
 
-    app.patch("/users/changerole/:id", verifyAdmin, async (req, res) => {
+    app.patch("/users/changerole/:id", verifyFBToken, verifyAdmin, async (req, res) => {
 
       const { id } = req.params;
       const user = await UserList.findOne({ _id: new ObjectId(id) });
@@ -164,8 +172,7 @@ async function run() {
 
       const result = await UserList.updateOne(
         { email },
-        { $inc: { warning: 1 } },
-        { upsert: true }
+        { $inc: { warning: 1 } }
       );
 
     });
@@ -211,20 +218,23 @@ async function run() {
     });
 
 
-    app.get("/posts/search", async (req, res) => {
 
-      const { tag } = req.query;
+    app.get("/post/search/:tag", async (req, res) => {
+      try {
+        const { tag } = req.params;
+        if (!tag) {
+          return res.status(400).json({ message: "Tag parameter is required" });
+        }
 
-      if (!tag) {
-        return res.status(400).json({ message: "Tag query is required" });
+        const result = await PostList.find({
+          tag: { $regex: new RegExp(tag, "i") }
+        }).toArray();
+
+        res.json(result);
+      } catch (err) {
+        console.error("Error searching posts:", err);
+        res.status(500).json({ message: "Internal Server Error" });
       }
-
-      const result = await PostList.find({
-        tag: { $regex: new RegExp(tag, "i") }
-      }).toArray();
-
-      res.json(result);
-
     });
 
 
@@ -289,7 +299,7 @@ async function run() {
 
 
 
-    app.post("/posts/:id/downvote", verifyAdmin, async (req, res) => {
+    app.post("/posts/:id/downvote", verifyFBToken, async (req, res) => {
       try {
         const { userEmail } = req.body;
         const postId = req.params.id;
@@ -485,7 +495,7 @@ async function run() {
         await UserList.updateOne(
           { email },
           { $set: { badge: "gold" } },
-          { upsert: true } 
+          { upsert: true }
         );
         res.json({
           success: true,
