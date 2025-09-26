@@ -3,15 +3,16 @@ const cors = require('cors')
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY);
+const admin = require("firebase-admin");
 const app = express()
 const port = 3000
 
 app.use(cors())
 app.use(express.json());
 
-const admin = require("firebase-admin");
 
-const serviceAccount = require("./firebase-adminsdk-key.json");
+const decodedKey = Buffer.from(process.env.FB_TOKEN, 'base64').toString('utf8');
+const serviceAccount = JSON.parse(decodedKey);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -103,8 +104,8 @@ async function run() {
       const { email } = req.params;
       const user = await UserList.findOne({ email });
       res.send(user);
-
     });
+
     app.get("/users/banwarnings", verifyFBToken, verifyAdmin, async (req, res) => {
 
       const users = await UserList.find({ warning: { $gte: 5 } }).toArray();
@@ -117,12 +118,8 @@ async function run() {
         const email = req.params.email;
         const user = await UserList.findOne({ email });
 
-        console.log("d_____________________",user)
-        if (!user) {
-          return res.status(404).send({ message: 'User not found' });
-        }
 
-        res.send({ role: user.role || 'user' });
+        res.send({ role: user.role  });
       } catch (error) {
         console.error("Error finding user by email:", error);
         res.status(500).send({ message: "Internal Server Error" });
@@ -524,8 +521,8 @@ async function run() {
 
 
 
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
 
     // await client.close();
